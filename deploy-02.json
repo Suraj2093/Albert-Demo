@@ -1,124 +1,271 @@
 {
-    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-    "contentVersion": "1.0.0.0",
-    "parameters": {
-      "sqlAdministratorLogin": {
-        "type": "string",
-        "metadata": {
-          "description": "The admin user of the SQL Server"
-        }
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "deploymentId": {
+      "type": "string"
+    },
+    "sqlAdministratorLogin": {
+      "type": "string",
+      "metadata": {
+        "description": "The admin user of the SQL Server"
+      }
+    },
+    "sqlAdministratorLoginPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "The password of the admin user of the SQL Server"
+      }
+    }
+  },
+  "variables": {
+    "skuName": "B1",
+    "hostingPlanName": "[concat('hostingplan', uniqueString(resourceGroup().id))]",
+    "webAppName": "[concat('webSite', uniqueString(resourceGroup().id))]",
+    "sqlserverName": "[concat('sqlserver', uniqueString(resourceGroup().id))]",
+    "databaseName": "sampledb",
+    "location": "[resourceGroup().location]",
+    "gitRepoUrl": "https://github.com/CloudLabs-AI/AFD-EShopSolution",
+    "frontDoorName": "[concat('afd-', parameters('deploymentId'))]",
+    "frontDoorNameWaf": "[concat('afdwaf', parameters('deploymentId'))]"
+  },
+  "resources": [
+    {
+      "name": "[variables('sqlserverName')]",
+      "type": "Microsoft.Sql/servers",
+      "location": "[variables('location')]",
+      "apiVersion": "2020-02-02-preview",
+      "properties": {
+        "administratorLogin": "[parameters('sqlAdministratorLogin')]",
+        "administratorLoginPassword": "[parameters('sqlAdministratorLoginPassword')]",
+        "version": "12.0"
       },
-      "sqlAdministratorLoginPassword": {
-        "type": "securestring",
-        "metadata": {
-          "description": "The password of the admin user of the SQL Server"
+      "resources": [
+        {
+          "name": "[variables('databaseName')]",
+          "type": "databases",
+          "location": "[variables('location')]",
+          "apiVersion": "2020-02-02-preview",
+          "dependsOn": [
+            "[variables('sqlserverName')]"
+          ],
+          "properties": {
+            "edition": "Free",
+            "collation": "SQL_Latin1_General_CP1_CI_AS",
+            "maxSizeBytes": "1073741824",
+            "requestedServiceObjectiveName": "Basic"
+          }
+        },
+        {
+          "type": "firewallrules",
+          "apiVersion": "2020-02-02-preview",
+          "dependsOn": [
+            "[variables('sqlserverName')]"
+          ],
+          "location": "[variables('location')]",
+          "name": "AllowAllWindowsAzureIps",
+          "properties": {
+            "endIpAddress": "0.0.0.0",
+            "startIpAddress": "0.0.0.0"
+          }
+        }
+      ]
+    },
+    {
+      "apiVersion": "2020-06-01",
+      "name": "[variables('hostingPlanName')]",
+      "type": "Microsoft.Web/serverfarms",
+      "location": "[variables('location')]",
+      "sku": {
+        "name": "[variables('skuName')]"
+      },
+      "properties": {
+        "name": "[variables('hostingPlanName')]"
+      }
+    },
+    {
+      "apiVersion": "2020-06-01",
+      "name": "[variables('webAppName')]",
+      "type": "Microsoft.Web/sites",
+      "location": "[variables('location')]",
+      "dependsOn": [
+        "[variables('hostingPlanName')]"
+      ],
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]"
+      },
+      "resources": [
+        {
+          "apiVersion": "2020-06-01",
+          "type": "config",
+          "name": "connectionstrings",
+          "dependsOn": [
+            "[variables('webAppName')]"
+          ],
+          "properties": {
+            "DefaultConnection": {
+              "value": "[concat('Data Source=tcp:', reference(resourceId('Microsoft.Sql/servers/', variables('sqlserverName'))).fullyQualifiedDomainName, ',1433;Initial Catalog=', variables('databaseName'), ';User Id=', parameters('sqlAdministratorLogin'), '@', reference(resourceId('Microsoft.Sql/servers/', variables('sqlserverName'))).fullyQualifiedDomainName, ';Password=', parameters('sqlAdministratorLoginPassword'), ';')]",
+              "type": "SQLAzure"
+            }
+          }
+        },
+        {
+          "type": "sourcecontrols",
+          "apiVersion": "2020-06-01",
+          "name": "web",
+          "location": "[variables('location')]",
+          "dependsOn": [
+            "[variables('webAppName')]"
+          ],
+          "properties": {
+            "repoUrl": "[variables('gitRepoUrl')]",
+            "branch": "master",
+            "isManualIntegration": true
+          }
+        }
+      ]
+    },
+    {
+      "type": "Microsoft.Network/frontdoorwebapplicationfirewallpolicies",
+      "apiVersion": "2020-04-01",
+      "name": "[variables('frontDoorNameWaf')]",
+      "location": "Global",
+      "properties": {
+        "policySettings": {
+          "enabledState": "Enabled",
+          "mode": "Prevention",
+          "customBlockResponseStatusCode": 403
+        },
+        "customRules": {
+          "rules": []
+        },
+        "managedRules": {
+          "managedRuleSets": [
+            {
+              "ruleSetType": "DefaultRuleSet",
+              "ruleSetVersion": "1.0",
+              "ruleGroupOverrides": [],
+              "exclusions": []
+            },
+            {
+              "ruleSetType": "Microsoft_BotManagerRuleSet",
+              "ruleSetVersion": "1.0",
+              "ruleGroupOverrides": [],
+              "exclusions": []
+            }
+          ]
         }
       }
     },
-    "variables": {
-      "skuName": "B1",
-      "hostingPlanName": "[concat('hostingplan', uniqueString(resourceGroup().id))]",
-      "webSiteName": "[concat('webSite', uniqueString(resourceGroup().id))]",
-      "sqlserverName": "[concat('sqlserver', uniqueString(resourceGroup().id))]",
-      "databaseName": "sampledb",
-      "location": "[resourceGroup().location]",
-      "gitRepoUrl": "https://github.com/CloudLabs-AI/AFD-EShopSolution"
-    },
-    "resources": [
-      {
-        "name": "[variables('sqlserverName')]",
-        "type": "Microsoft.Sql/servers",
-        "location": "[variables('location')]",
-        "apiVersion": "2020-02-02-preview",
-        "properties": {
-          "administratorLogin": "[parameters('sqlAdministratorLogin')]",
-          "administratorLoginPassword": "[parameters('sqlAdministratorLoginPassword')]",
-          "version": "12.0"
-        },
-        "resources": [
+    {
+      "type": "Microsoft.Network/frontDoors",
+      "apiVersion": "2020-07-01",
+      "name": "[variables('frontDoorName')]",
+      "location": "global",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('webAppName'))]",
+        "[resourceId('Microsoft.Network/frontdoorwebapplicationfirewallpolicies', variables('frontDoorNameWaf'))]"
+      ],
+      "properties": {
+        "routingRules": [
           {
-            "name": "[variables('databaseName')]",
-            "type": "databases",
-            "location": "[variables('location')]",
-            "apiVersion": "2020-02-02-preview",
-            "dependsOn": [
-              "[variables('sqlserverName')]"
-            ],
+            "name": "routingRule1",
             "properties": {
-              "edition": "Free",
-              "collation": "SQL_Latin1_General_CP1_CI_AS",
-              "maxSizeBytes": "1073741824",
-              "requestedServiceObjectiveName": "Basic"
-            }
-          },
-          {
-            "type": "firewallrules",
-            "apiVersion": "2020-02-02-preview",
-            "dependsOn": [
-              "[variables('sqlserverName')]"
-            ],
-            "location": "[variables('location')]",
-            "name": "AllowAllWindowsAzureIps",
-            "properties": {
-              "endIpAddress": "0.0.0.0",
-              "startIpAddress": "0.0.0.0"
+              "frontendEndpoints": [
+                {
+                  "id": "[resourceId('Microsoft.Network/frontDoors/frontendEndpoints', variables('frontDoorName'), 'frontendEndpoint1')]"
+                }
+              ],
+              "acceptedProtocols": [
+                "Http",
+                "Https"
+              ],
+              "patternsToMatch": [
+                "/*"
+              ],
+              "routeConfiguration": {
+                "@odata.type": "#Microsoft.Azure.FrontDoor.Models.FrontdoorForwardingConfiguration",
+                "forwardingProtocol": "HttpsOnly",
+                "backendPool": {
+                  "id": "[resourceId('Microsoft.Network/frontDoors/backendPools', variables('frontDoorName'), 'backendPool1')]"
+                }
+              },
+              "enabledState": "Enabled",
+              "resourceState": "Enabled"
             }
           }
-        ]
-      },
-      {
-        "apiVersion": "2020-06-01",
-        "name": "[variables('hostingPlanName')]",
-        "type": "Microsoft.Web/serverfarms",
-        "location": "[variables('location')]",
-        "sku": {
-          "name": "[variables('skuName')]"
-        },
-        "properties": {
-          "name": "[variables('hostingPlanName')]"
-        }
-      },
-      {
-        "apiVersion": "2020-06-01",
-        "name": "[variables('webSiteName')]",
-        "type": "Microsoft.Web/sites",
-        "location": "[variables('location')]",
-        "dependsOn": [
-          "[variables('hostingPlanName')]"
         ],
-        "properties": {
-          "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]"
-        },
-        "resources": [
+        "healthProbeSettings": [
           {
-            "apiVersion": "2020-06-01",
-            "type": "config",
-            "name": "connectionstrings",
-            "dependsOn": [
-              "[variables('webSiteName')]"
-            ],
+            "name": "healthProbeSettings1",
             "properties": {
-              "DefaultConnection": {
-                "value": "[concat('Data Source=tcp:', reference(resourceId('Microsoft.Sql/servers/', variables('sqlserverName'))).fullyQualifiedDomainName, ',1433;Initial Catalog=', variables('databaseName'), ';User Id=', parameters('sqlAdministratorLogin'), '@', reference(resourceId('Microsoft.Sql/servers/', variables('sqlserverName'))).fullyQualifiedDomainName, ';Password=', parameters('sqlAdministratorLoginPassword'), ';')]",
-                "type": "SQLAzure"
+              "path": "/",
+              "protocol": "Https",
+              "intervalInSeconds": 30
+            }
+          }
+        ],
+        "loadBalancingSettings": [
+          {
+            "name": "loadBalancingSettings1",
+            "properties": {
+              "sampleSize": 4,
+              "successfulSamplesRequired": 2
+            }
+          }
+        ],
+        "backendPools": [
+          {
+            "name": "backendPool1",
+            "properties": {
+              "backends": [
+                {
+                  "address": "[concat(variables('webAppName'),'.azurewebsites.net')]",
+                  "backendHostHeader": "[concat(variables('webAppName'),'.azurewebsites.net')]",
+                  "httpPort": 80,
+                  "httpsPort": 443,
+                  "weight": 50,
+                  "priority": 1,
+                  "enabledState": "Enabled"
+                }
+              ],
+              "loadBalancingSettings": {
+                "id": "[resourceId('Microsoft.Network/frontDoors/loadBalancingSettings', variables('frontDoorName'), 'loadBalancingSettings1')]"
+              },
+              "healthProbeSettings": {
+                "id": "[resourceId('Microsoft.Network/frontDoors/healthProbeSettings', variables('frontDoorName'), 'healthProbeSettings1')]"
               }
             }
-          },
+          }
+        ],
+        "frontendEndpoints": [
           {
-            "type": "sourcecontrols",
-            "apiVersion": "2020-06-01",
-            "name": "web",
-            "location": "[variables('location')]",
-            "dependsOn": [
-              "[variables('webSiteName')]"
-            ],
+            "name": "frontendEndpoint1",
             "properties": {
-              "repoUrl": "[variables('gitRepoUrl')]",
-              "branch": "master",
-              "isManualIntegration": true
+              "hostName": "[concat(variables('frontDoorName'), '.azurefd.net')]",
+              "sessionAffinityEnabledState": "Disabled",
+              "webApplicationFirewallPolicyLink": {
+                "id": "[resourceId('Microsoft.Network/frontdoorwebapplicationfirewallpolicies', variables('frontDoorNameWaf'))]"
+              }
             }
           }
-        ]
+        ],
+        "enabledState": "Enabled"
       }
-    ]
+    }
+  ],
+  "outputs": {
+    "Web App URL": {
+      "type": "string",
+      "value": "[concat('https://',variables('webAppName'),'.azurewebsites.net')]"
+    },
+    "Sql Admin Username": {
+      "type": "string",
+      "value": "[parameters('sqlAdministratorLogin')]"
+    },
+    "Sql Admin Password": {
+      "type": "string",
+      "value": "[parameters('sqlAdministratorLoginPassword')]"
+    }
   }
+}
