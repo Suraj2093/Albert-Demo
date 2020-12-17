@@ -26,7 +26,7 @@
     "databaseName": "sampledb",
     "location": "[resourceGroup().location]",
     "gitRepoUrl": "https://github.com/CloudLabs-AI/AFD-EShopSolution",
-    "frontDoorName": "[concat('afd-', parameters('deploymentId'))]",
+    "frontDoorName": "[concat('afdsql-', parameters('deploymentId'))]",
     "frontDoorNameWaf": "[concat('afdwaf', parameters('deploymentId'))]"
   },
   "resources": [
