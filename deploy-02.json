@@ -1,0 +1,124 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "sqlAdministratorLogin": {
+        "type": "string",
+        "metadata": {
+          "description": "The admin user of the SQL Server"
+        }
+      },
+      "sqlAdministratorLoginPassword": {
+        "type": "securestring",
+        "metadata": {
+          "description": "The password of the admin user of the SQL Server"
+        }
+      }
+    },
+    "variables": {
+      "skuName": "B1",
+      "hostingPlanName": "[concat('hostingplan', uniqueString(resourceGroup().id))]",
+      "webSiteName": "[concat('webSite', uniqueString(resourceGroup().id))]",
+      "sqlserverName": "[concat('sqlserver', uniqueString(resourceGroup().id))]",
+      "databaseName": "sampledb",
+      "location": "[resourceGroup().location]",
+      "gitRepoUrl": "https://github.com/CloudLabs-AI/AFD-EShopSolution"
+    },
+    "resources": [
+      {
+        "name": "[variables('sqlserverName')]",
+        "type": "Microsoft.Sql/servers",
+        "location": "[variables('location')]",
+        "apiVersion": "2020-02-02-preview",
+        "properties": {
+          "administratorLogin": "[parameters('sqlAdministratorLogin')]",
+          "administratorLoginPassword": "[parameters('sqlAdministratorLoginPassword')]",
+          "version": "12.0"
+        },
+        "resources": [
+          {
+            "name": "[variables('databaseName')]",
+            "type": "databases",
+            "location": "[variables('location')]",
+            "apiVersion": "2020-02-02-preview",
+            "dependsOn": [
+              "[variables('sqlserverName')]"
+            ],
+            "properties": {
+              "edition": "Free",
+              "collation": "SQL_Latin1_General_CP1_CI_AS",
+              "maxSizeBytes": "1073741824",
+              "requestedServiceObjectiveName": "Basic"
+            }
+          },
+          {
+            "type": "firewallrules",
+            "apiVersion": "2020-02-02-preview",
+            "dependsOn": [
+              "[variables('sqlserverName')]"
+            ],
+            "location": "[variables('location')]",
+            "name": "AllowAllWindowsAzureIps",
+            "properties": {
+              "endIpAddress": "0.0.0.0",
+              "startIpAddress": "0.0.0.0"
+            }
+          }
+        ]
+      },
+      {
+        "apiVersion": "2020-06-01",
+        "name": "[variables('hostingPlanName')]",
+        "type": "Microsoft.Web/serverfarms",
+        "location": "[variables('location')]",
+        "sku": {
+          "name": "[variables('skuName')]"
+        },
+        "properties": {
+          "name": "[variables('hostingPlanName')]"
+        }
+      },
+      {
+        "apiVersion": "2020-06-01",
+        "name": "[variables('webSiteName')]",
+        "type": "Microsoft.Web/sites",
+        "location": "[variables('location')]",
+        "dependsOn": [
+          "[variables('hostingPlanName')]"
+        ],
+        "properties": {
+          "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]"
+        },
+        "resources": [
+          {
+            "apiVersion": "2020-06-01",
+            "type": "config",
+            "name": "connectionstrings",
+            "dependsOn": [
+              "[variables('webSiteName')]"
+            ],
+            "properties": {
+              "DefaultConnection": {
+                "value": "[concat('Data Source=tcp:', reference(resourceId('Microsoft.Sql/servers/', variables('sqlserverName'))).fullyQualifiedDomainName, ',1433;Initial Catalog=', variables('databaseName'), ';User Id=', parameters('sqlAdministratorLogin'), '@', reference(resourceId('Microsoft.Sql/servers/', variables('sqlserverName'))).fullyQualifiedDomainName, ';Password=', parameters('sqlAdministratorLoginPassword'), ';')]",
+                "type": "SQLAzure"
+              }
+            }
+          },
+          {
+            "type": "sourcecontrols",
+            "apiVersion": "2020-06-01",
+            "name": "web",
+            "location": "[variables('location')]",
+            "dependsOn": [
+              "[variables('webSiteName')]"
+            ],
+            "properties": {
+              "repoUrl": "[variables('gitRepoUrl')]",
+              "branch": "master",
+              "isManualIntegration": true
+            }
+          }
+        ]
+      }
+    ]
+  }
