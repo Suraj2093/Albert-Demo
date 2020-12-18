@@ -22,7 +22,7 @@
     "skuName": "B1",
     "webAppName": "[concat('webSite', parameters('deploymentId'))]",
     "hostingPlanName": "[concat('hostingplan', variables('webAppName'))]",
-    "sqlserverName": "[concat('sqlserver', uniqueString(resourceGroup().id))]",
+    "sqlserverName": "[concat('sqlserver', parameters('deploymentId'))]",
     "databaseName": "sampledb",
     "location": "[resourceGroup().location]",
     "gitRepoUrl": "https://github.com/CloudLabs-AI/AFD-EShopSolution",
@@ -71,15 +71,14 @@
         },
         {
           "type": "firewallrules",
-          "apiVersion": "2020-02-02-preview",
+          "apiVersion": "2015-05-01-preview",
+          "name": "AllowAllWindowsAzureIps",
           "dependsOn": [
             "[variables('sqlserverName')]"
           ],
-          "location": "[variables('location')]",
-          "name": "AllowAllWindowsAzureIps",
           "properties": {
-            "endIpAddress": "0.0.0.0",
-            "startIpAddress": "0.0.0.0"
+            "startIpAddress": "0.0.0.0",
+            "endIpAddress": "255.255.255.255"
           }
         }
       ]
