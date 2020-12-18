@@ -200,7 +200,7 @@
             "type": "string",
             "value": "[concat('https://',variables('webAppName'),'.azurewebsites.net')]"
         },
-        "Web App URL via AFD": {
+        "AFD URL": {
             "type": "string",
             "value": "[concat('https://',variables('frontDoorName'),'.azurefd.net')]"
         }
