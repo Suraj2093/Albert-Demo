@@ -20,8 +20,8 @@
   },
   "variables": {
     "skuName": "B1",
-    "hostingPlanName": "[concat('hostingplan', uniqueString(resourceGroup().id))]",
-    "webAppName": "[concat('webSite', uniqueString(resourceGroup().id))]",
+    "webAppName": "[concat('webSite', parameters('deploymentId'))]",
+    "hostingPlanName": "[concat('hostingplan', variables('webAppName'))]",
     "sqlserverName": "[concat('sqlserver', uniqueString(resourceGroup().id))]",
     "databaseName": "sampledb",
     "location": "[resourceGroup().location]",
@@ -271,6 +271,10 @@
     "Web App URL": {
       "type": "string",
       "value": "[concat('https://',variables('webAppName'),'.azurewebsites.net')]"
+    },
+    "Web App URL via AFD": {
+      "type": "string",
+      "value": "[concat('https://',variables('frontDoorName'),'.azurefd.net')]"
     },
     "Sql Admin Username": {
       "type": "string",

@@ -44,7 +44,7 @@
             "name": "[variables('webAppName')]",
             "location": "[variables('location')]",
             "dependsOn": [
-                "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]"
+                "[variables('hostingPlanName')]"
             ],
             "properties": {
                 "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]"
@@ -199,6 +199,10 @@
         "Web App URL": {
             "type": "string",
             "value": "[concat('https://',variables('webAppName'),'.azurewebsites.net')]"
+        },
+        "Web App URL via AFD": {
+            "type": "string",
+            "value": "[concat('https://',variables('frontDoorName'),'.azurefd.net')]"
         }
     }
 }
