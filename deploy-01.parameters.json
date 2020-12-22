@@ -4,6 +4,12 @@
     "parameters": {
         "deploymentId": {
             "value": "GET-DEPLOYMENT-ID"
-        }
+        },
+        "administratorLoginName": {
+            "value": "demouser"
+          },
+          "administratorLoginPassword": {
+            "value": "Password@123"
+          }
     }
 }

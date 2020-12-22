@@ -4,6 +4,12 @@
     "parameters": {
         "deploymentId": {
             "type": "string"
+        },
+        "administratorLoginName": {
+            "type": "string"
+        },
+        "administratorLoginPassword": {
+            "type": "SecureString"
         }
     },
     "variables": {
@@ -13,7 +19,18 @@
         "sku": "B1",
         "gitRepoUrl": "https://github.com/CloudLabs-AI/AFD-EShopSolution",
         "frontDoorName": "[concat('afd-', parameters('deploymentId'))]",
-        "frontDoorNameWaf": "[concat('afdwaf', parameters('deploymentId'))]"
+        "frontDoorNameWaf": "[concat('afdwaf', parameters('deploymentId'))]",
+        "networkSecurityGroupName": "labvm-nsg",
+        "virtualNetworkName": "labvm-vnet",
+        "addressPrefix": "10.0.0.0/24",
+        "subnetPrefix": "10.0.0.0/24",
+        "subnetName": "labvm-subnet",
+        "publicIpAddressName": "labvm-pip",
+        "publicIpAddressType": "Dynamic",
+        "labvmDnsName": "[concat('labvm',uniqueString(resourceGroup().id))]",
+        "labvmNetworkInterfaceName": "labvm-nic",
+        "virtualMachineName": "labvm",
+        "virtualMachineSize": "Standard_D2_v3"
     },
     "resources": [
         {
@@ -193,6 +210,140 @@
                 ],
                 "enabledState": "Enabled"
             }
+        },
+        {
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "apiVersion": "2017-06-01",
+            "name": "[variables('networkSecurityGroupName')]",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "default-allow-rdp",
+                        "properties": {
+                            "priority": 1030,
+                            "protocol": "TCP",
+                            "access": "Allow",
+                            "direction": "Inbound",
+                            "sourceAddressPrefix": "*",
+                            "sourcePortRange": "*",
+                            "destinationAddressPrefix": "*",
+                            "destinationPortRange": "3389"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2017-08-01",
+            "name": "[variables('virtualNetworkName')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/networkSecurityGroups/',variables('networkSecurityGroupName'))]"
+            ],
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "[variables('addressPrefix')]"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "[variables('subnetName')]",
+                        "properties": {
+                            "addressPrefix": "[variables('subnetPrefix')]"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Network/publicIpAddresses",
+            "apiVersion": "2017-08-01",
+            "name": "[variables('publicIpAddressName')]",
+            "location": "[resourceGroup().location]",
+            "sku": {
+                "name": "Basic"
+            },
+            "properties": {
+                "publicIpAllocationMethod": "[variables('publicIpAddressType')]",
+                "dnsSettings": {
+                    "domainNameLabel": "[variables('labvmDnsName')]"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Network/networkInterfaces",
+            "apiVersion": "2016-09-01",
+            "name": "[variables('labvmNetworkInterfaceName')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]",
+                "[concat('Microsoft.Network/publicIpAddresses/', variables('publicIpAddressName'))]"
+            ],
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "subnet": {
+                                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets/', variables('virtualNetworkName'), variables('subnetName'))]"
+                            },
+                            "privateIPAllocationMethod": "Dynamic",
+                            "publicIpAddress": {
+                                "id": "[resourceId('Microsoft.Network/publicIpAddresses', variables('publicIpAddressName'))]"
+                            }
+                        }
+                    }
+                ],
+                "networkSecurityGroup": {
+                    "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachines",
+            "apiVersion": "2016-04-30-preview",
+            "name": "[variables('virtualMachineName')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/networkInterfaces/', variables('labvmnetworkInterfaceName'))]"
+            ],
+            "properties": {
+                "osProfile": {
+                    "computerName": "[variables('virtualMachineName')]",
+                    "adminUsername": "[parameters('administratorLoginName')]",
+                    "adminPassword": "[parameters('administratorLoginPassword')]",
+                    "windowsConfiguration": {
+                        "provisionVmAgent": "true"
+                    }
+                },
+                "hardwareProfile": {
+                    "vmSize": "[variables('virtualMachineSize')]"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "MicrosoftVisualStudio",
+                        "offer": "visualstudio2019latest",
+                        "sku": "vs-2019-comm-latest-win10-n",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "name": "[concat(variables('virtualMachineName'),'_OSDisk')]",
+                        "caching": "ReadWrite",
+                        "createOption": "FromImage"
+                    },
+                    "dataDisks": []
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('labvmnetworkInterfaceName'))]"
+                        }
+                    ]
+                }
+            }
         }
     ],
     "outputs": {
@@ -203,6 +354,18 @@
         "AFD URL": {
             "type": "string",
             "value": "[concat('https://',variables('frontDoorName'),'.azurefd.net')]"
+        },
+        "labvmDnsName": {
+            "type": "String",
+            "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses',variables('publicIpAddressName'))).dnsSettings.fqdn]"
+        },
+        "labvmUsername": {
+            "type": "String",
+            "value": "[parameters('administratorLoginName')]"
+        },
+        "labvmPassword": {
+            "type": "String",
+            "value": "[parameters('administratorLoginPassword')]"
         }
     }
 }
