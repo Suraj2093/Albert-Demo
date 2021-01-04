@@ -20,7 +20,7 @@
       }
     },
     "variables": {
-      "skuName": "B1",
+      "skuName": "S1",
       "frontDoorName": "[concat('afd-', parameters('deploymentId'))]",
       "webSiteName": "[concat('webApp-', parameters('deploymentId'))]",
       "sqlserverName": "[concat('sqlserver', parameters('deploymentId'))]",
