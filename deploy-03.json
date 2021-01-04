@@ -1,0 +1,452 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "administratorLoginName": {
+        "defaultValue": "demouser",
+        "type": "String",
+        "metadata": {
+          "description": "The admin user of the SQL Server"
+        }
+      },
+      "administratorLoginPassword": {
+        "type": "SecureString",
+        "metadata": {
+          "description": "The password of the admin user of the SQL Server"
+        }
+      },
+      "deploymentId": {
+        "type": "string"
+      }
+    },
+    "variables": {
+      "skuName": "B1",
+      "frontDoorName": "[concat('afd-', parameters('deploymentId'))]",
+      "webSiteName": "[concat('webApp-', parameters('deploymentId'))]",
+      "sqlserverName": "[concat('sqlserver', parameters('deploymentId'))]",
+      "frontdoorWAFpolicyName": "[concat('afdwaf', parameters('deploymentId'))]",
+      "hostingPlanName": "[concat('hostingplan', parameters('deploymentId'))]",
+      "databaseName": "sampledb",
+      "location": "[resourceGroup().location]",
+      "SAASKeyForbacpac": "sp=r&st=2020-12-28T15:09:20Z&se=2021-12-31T23:09:20Z&spr=https&sv=2019-12-12&sr=b&sig=ZA4d16eP%2BL9icXH459e%2BOWDo7KkVxugks1kVIGC%2F760%3D",
+      "networkSecurityGroupName": "labvm-nsg",
+      "virtualNetworkName": "labvm-vnet",
+      "addressPrefix": "10.0.0.0/24",
+      "subnetPrefix": "10.0.0.0/24",
+      "subnetName": "labvm-subnet",
+      "publicIpAddressName": "labvm-pip",
+      "publicIpAddressType": "Dynamic",
+      "labvmDnsName": "[concat('labvm',uniqueString(resourceGroup().id))]",
+      "labvmNetworkInterfaceName": "labvm-nic",
+      "virtualMachineName": "labvm",
+      "virtualMachineSize": "Standard_D2_v3"
+    },
+    "resources": [
+      {
+        "type": "Microsoft.Sql/servers",
+        "apiVersion": "2020-02-02-preview",
+        "name": "[variables('sqlserverName')]",
+        "location": "[variables('location')]",
+        "properties": {
+          "administratorLogin": "[parameters('administratorLoginName')]",
+          "administratorLoginPassword": "[parameters('administratorLoginPassword')]",
+          "version": "12.0"
+        },
+        "resources": [
+          {
+            "type": "databases",
+            "apiVersion": "2020-02-02-preview",
+            "name": "[variables('databaseName')]",
+            "location": "[variables('location')]",
+            "dependsOn": [
+              "[variables('sqlserverName')]"
+            ],
+            "properties": {
+              "edition": "Basic",
+              "collation": "SQL_Latin1_General_CP1_CI_AS",
+              "maxSizeBytes": "1073741824",
+              "requestedServiceObjectiveName": "Basic"
+            },
+            "resources": [
+              {
+                "type": "extensions",
+                "apiVersion": "2014-04-01",
+                "name": "Import",
+                "dependsOn": [
+                  "[resourceId('Microsoft.Sql/servers/databases', variables('sqlserverName'), variables('databaseName'))]"
+                ],
+                "properties": {
+                  "storageKeyType": "SharedAccessKey",
+                  "storageKey": "[concat('?',variables('SAASKeyForbacpac'))]",
+                  "storageUri": "https://bapacfile.blob.core.windows.net/bacpaccontainer/demoapps-2020-12-29-20-33.bacpac",
+                  "administratorLogin": "[parameters('administratorLoginName')]",
+                  "administratorLoginPassword": "[parameters('administratorLoginPassword')]",
+                  "operationMode": "Import"
+                }
+              }
+            ]
+          },
+          {
+            "type": "firewallrules",
+            "apiVersion": "2020-02-02-preview",
+            "name": "AllowAllIps",
+            "location": "[variables('location')]",
+            "dependsOn": [
+              "[variables('sqlserverName')]"
+            ],
+            "properties": {
+              "endIpAddress": "255.255.255.255",
+              "startIpAddress": "0.0.0.0"
+            }
+          }
+        ]
+      },
+      {
+        "type": "Microsoft.Web/serverfarms",
+        "apiVersion": "2020-06-01",
+        "name": "[variables('hostingPlanName')]",
+        "location": "[variables('location')]",
+        "sku": {
+          "name": "[variables('skuName')]"
+        },
+        "properties": {
+          "name": "[variables('hostingPlanName')]"
+        }
+      },
+      {
+        "type": "Microsoft.Web/sites",
+        "apiVersion": "2020-06-01",
+        "name": "[variables('webSiteName')]",
+        "location": "[variables('location')]",
+        "dependsOn": [
+          "[variables('hostingPlanName')]",
+          "[resourceId('Microsoft.Sql/servers/databases', variables('sqlserverName'), variables('databaseName'))]"
+        ],
+        "properties": {
+          "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]"
+        },
+        "resources": [
+          {
+            "apiVersion": "2020-06-01",
+            "type": "config",
+            "name": "connectionstrings",
+            "dependsOn": [
+              "[variables('webSiteName')]"
+            ],
+            "properties": {
+              "DefaultConnection": {
+                "value": "[concat('Data Source=tcp:', reference(resourceId('Microsoft.Sql/servers/', variables('sqlserverName'))).fullyQualifiedDomainName, ',1433;Initial Catalog=', variables('databaseName'), ';User Id=', parameters('administratorLoginName'), '@', reference(resourceId('Microsoft.Sql/servers/', variables('sqlserverName'))).fullyQualifiedDomainName, ';Password=', parameters('administratorLoginPassword'), ';')]",
+                "type": "SQLAzure"
+              }
+            }
+          },
+          {
+            "type": "extensions",
+            "apiVersion": "2020-06-01",
+            "name": "MSDeploy",
+            "location": "[variables('location')]",
+            "dependsOn": [
+              "[variables('webSiteName')]"
+            ],
+            "properties": {
+              "packageUri": "https://bapacfile.blob.core.windows.net/blob/AFDDemoProject.zip?sp=r&st=2020-12-28T13:10:24Z&se=2021-01-07T21:10:24Z&spr=https&sv=2019-12-12&sr=b&sig=JOPpSV1%2Fh2HRJUpaNZFeEqYC%2BHSMzy7dFRALifeUj%2BQ%3D",
+              "dbType": "None"
+            }
+          }
+        ]
+      },
+      {
+        "type": "Microsoft.Network/frontdoorwebapplicationfirewallpolicies",
+        "apiVersion": "2020-04-01",
+        "name": "[variables('frontdoorWAFpolicyName')]",
+        "location": "Global",
+        "properties": {
+          "policySettings": {
+            "enabledState": "Enabled",
+            "mode": "Prevention",
+            "customBlockResponseStatusCode": 403
+          },
+          "customRules": {
+            "rules": []
+          },
+          "managedRules": {
+            "managedRuleSets": [
+              {
+                "ruleSetType": "DefaultRuleSet",
+                "ruleSetVersion": "1.0",
+                "ruleGroupOverrides": [],
+                "exclusions": []
+              },
+              {
+                "ruleSetType": "Microsoft_BotManagerRuleSet",
+                "ruleSetVersion": "1.0",
+                "ruleGroupOverrides": [],
+                "exclusions": []
+              }
+            ]
+          }
+        }
+      },
+      {
+        "type": "Microsoft.Network/frontdoors",
+        "apiVersion": "2020-07-01",
+        "name": "[variables('frontDoorName')]",
+        "location": "Global",
+        "dependsOn": [
+          "[variables('hostingPlanName')]",
+          "[variables('frontdoorWAFpolicyName')]"
+        ],
+        "properties": {
+          "enabledState": "Enabled",
+          "healthProbeSettings": [
+            {
+              "name": "healthProbeSettings1",
+              "properties": {
+                "path": "/",
+                "protocol": "Https",
+                "intervalInSeconds": 30
+              }
+            }
+          ],
+          "loadBalancingSettings": [
+            {
+              "name": "loadBalancingSettings1",
+              "properties": {
+                "sampleSize": 4,
+                "successfulSamplesRequired": 2
+              }
+            }
+          ],
+          "frontendEndpoints": [
+            {
+              "name": "frontendEndpoint1",
+              "properties": {
+                "hostName": "[concat(variables('frontDoorName'), '.azurefd.net')]",
+                "sessionAffinityEnabledState": "Disabled",
+                "webApplicationFirewallPolicyLink": {
+                  "id": "[resourceId('Microsoft.Network/frontdoorwebapplicationfirewallpolicies', variables('frontdoorWAFpolicyName'))]"
+                }
+              }
+            }
+          ],
+          "backendPools": [
+            {
+              "name": "backendpool1",
+              "properties": {
+                "backends": [
+                  {
+                    "address": "[concat(variables('webSiteName'), '.azurewebsites.net')]",
+                    "backendHostHeader": "[concat(variables('webSiteName'),'.azurewebsites.net')]",
+                    "enabledState": "Enabled",
+                    "httpPort": 80,
+                    "httpsPort": 443,
+                    "priority": 1,
+                    "weight": 50
+                  }
+                ],
+                "loadBalancingSettings": {
+                  "id": "[resourceId('Microsoft.Network/frontDoors/loadBalancingSettings', variables('frontDoorName'), 'loadBalancingSettings1')]"
+                },
+                "healthProbeSettings": {
+                  "id": "[resourceId('Microsoft.Network/frontDoors/healthProbeSettings', variables('frontDoorName'), 'healthProbeSettings1')]"
+                }
+              }
+            }
+          ],
+          "routingRules": [
+            {
+              "name": "rule1",
+              "properties": {
+                "frontendEndpoints": [
+                  {
+                    "id": "[resourceId('Microsoft.Network/frontDoors/frontendEndpoints', variables('frontDoorName'), 'frontendEndpoint1')]"
+                  }
+                ],
+                "acceptedProtocols": [
+                  "Http",
+                  "Https"
+                ],
+                "patternsToMatch": [
+                  "/*",
+                  "/site1/*"
+                ],
+                "enabledState": "Enabled",
+                "resourceState": "Enabled",
+                "routeConfiguration": {
+                  "@odata.type": "#Microsoft.Azure.FrontDoor.Models.FrontdoorForwardingConfiguration",
+                  "forwardingProtocol": "HttpsOnly",
+                  "backendPool": {
+                    "id": "[resourceId('Microsoft.Network/frontDoors/backendPools', variables('frontDoorName'), 'backendPool1')]"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Microsoft.Compute/virtualMachines",
+        "apiVersion": "2016-04-30-preview",
+        "name": "[variables('virtualMachineName')]",
+        "location": "[resourceGroup().location]",
+        "dependsOn": [
+          "[concat('Microsoft.Network/networkInterfaces/', variables('labvmnetworkInterfaceName'))]"
+        ],
+        "properties": {
+          "osProfile": {
+            "computerName": "[variables('virtualMachineName')]",
+            "adminUsername": "[parameters('administratorLoginName')]",
+            "adminPassword": "[parameters('administratorLoginPassword')]",
+            "windowsConfiguration": {
+              "provisionVmAgent": "true"
+            }
+          },
+          "hardwareProfile": {
+            "vmSize": "[variables('virtualMachineSize')]"
+          },
+          "storageProfile": {
+            "imageReference": {
+              "publisher": "MicrosoftVisualStudio",
+              "offer": "visualstudio2019latest",
+              "sku": "vs-2019-ent-latest-ws2019",
+              "version": "latest"
+            },
+            "osDisk": {
+              "name": "[concat(variables('virtualMachineName'),'_OSDisk')]",
+              "caching": "ReadWrite",
+              "createOption": "FromImage"
+            },
+            "dataDisks": []
+          },
+          "networkProfile": {
+            "networkInterfaces": [
+              {
+                "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('labvmnetworkInterfaceName'))]"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "type": "Microsoft.Network/networkInterfaces",
+        "apiVersion": "2016-09-01",
+        "name": "[variables('labvmNetworkInterfaceName')]",
+        "location": "[resourceGroup().location]",
+        "dependsOn": [
+          "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]",
+          "[concat('Microsoft.Network/publicIpAddresses/', variables('publicIpAddressName'))]"
+        ],
+        "properties": {
+          "ipConfigurations": [
+            {
+              "name": "ipconfig1",
+              "properties": {
+                "subnet": {
+                  "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets/', variables('virtualNetworkName'), variables('subnetName'))]"
+                },
+                "privateIPAllocationMethod": "Dynamic",
+                "publicIpAddress": {
+                  "id": "[resourceId('Microsoft.Network/publicIpAddresses', variables('publicIpAddressName'))]"
+                }
+              }
+            }
+          ],
+          "networkSecurityGroup": {
+            "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+          }
+        }
+      },
+      {
+        "type": "Microsoft.Network/publicIpAddresses",
+        "apiVersion": "2017-08-01",
+        "name": "[variables('publicIpAddressName')]",
+        "location": "[resourceGroup().location]",
+        "sku": {
+          "name": "Basic"
+        },
+        "properties": {
+          "publicIpAllocationMethod": "[variables('publicIpAddressType')]",
+          "dnsSettings": {
+            "domainNameLabel": "[variables('labvmDnsName')]"
+          }
+        }
+      },
+      {
+        "type": "Microsoft.Network/virtualNetworks",
+        "apiVersion": "2017-08-01",
+        "name": "[variables('virtualNetworkName')]",
+        "location": "[resourceGroup().location]",
+        "dependsOn": [
+          "[concat('Microsoft.Network/networkSecurityGroups/',variables('networkSecurityGroupName'))]"
+        ],
+        "properties": {
+          "addressSpace": {
+            "addressPrefixes": [
+              "[variables('addressPrefix')]"
+            ]
+          },
+          "subnets": [
+            {
+              "name": "[variables('subnetName')]",
+              "properties": {
+                "addressPrefix": "[variables('subnetPrefix')]"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Microsoft.Network/networkSecurityGroups",
+        "apiVersion": "2017-06-01",
+        "name": "[variables('networkSecurityGroupName')]",
+        "location": "[resourceGroup().location]",
+        "properties": {
+          "securityRules": [
+            {
+              "name": "default-allow-rdp",
+              "properties": {
+                "priority": 1030,
+                "protocol": "TCP",
+                "access": "Allow",
+                "direction": "Inbound",
+                "sourceAddressPrefix": "*",
+                "sourcePortRange": "*",
+                "destinationAddressPrefix": "*",
+                "destinationPortRange": "3389"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "outputs": {
+      "Web App URL": {
+        "type": "string",
+        "value": "[concat('https://',variables('webSiteName'),'.azurewebsites.net')]"
+      },
+      "AFD URL": {
+        "type": "string",
+        "value": "[concat('https://',variables('frontDoorName'),'.azurefd.net')]"
+      },
+      "labvmDnsName": {
+        "type": "String",
+        "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses',variables('publicIpAddressName'))).dnsSettings.fqdn]"
+      },
+      "labvmUsername": {
+        "type": "String",
+        "value": "[parameters('administratorLoginName')]"
+      },
+      "labvmPassword": {
+        "type": "String",
+        "value": "[parameters('administratorLoginPassword')]"
+      },
+      "SQL Server Admin Username": {
+        "type": "String",
+        "value": "[parameters('administratorLoginName')]"
+      },
+      "SQL Server Admin Password": {
+        "type": "String",
+        "value": "[parameters('administratorLoginPassword')]"
+      }
+    }
+  }
